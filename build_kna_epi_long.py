@@ -1322,7 +1322,7 @@ def build_idp_sheet(child_long_df: pd.DataFrame, template_df: pd.DataFrame) -> p
         row = {
             'Period': int(year),
             'Organization': template_row.get('Organization', 'KNA'),
-            'Project Name': template_row.get('Project Name', 'REACH_KK'),
+            'Project Name': 'REACH-KK',
             'indicator': 'Penta1 under 5-yr-old'
         }
 
