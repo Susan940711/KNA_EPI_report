@@ -370,6 +370,42 @@ def run_child_verification(child_df: pd.DataFrame) -> tuple[pd.Series, dict, pd.
   for idx in child_df.index[sequence_mask]:
     issue_labels[idx].append("Later dose earlier than previous dose")
 
+  # 4a-2) Interval between consecutive doses must be at least 28 days.
+  # Negative gaps are already reported by check 4a.
+  min_interval_days = 28
+  interval_pairs = [
+    ("Pe1D", "Pe2D", "Penta1-Penta2 interval < 28 days"),
+    ("Pe2D", "Pe3D", "Penta2-Penta3 interval < 28 days"),
+    ("OP1D", "OP2D", "OPV1-OPV2 interval < 28 days"),
+    ("OP2D", "OP3D", "OPV2-OPV3 interval < 28 days"),
+    ("MM1D", "MM2D", "MMR1-MMR2 interval < 28 days"),
+  ]
+  interval_mask = pd.Series(False, index=child_df.index)
+  report["issues"]["dose_interval_under_28_days"] = []
+  for idx in child_df.index:
+    for first_col, later_col, issue in interval_pairs:
+      if first_col not in child_df.columns or later_col not in child_df.columns:
+        continue
+      first_ts = _to_timestamp(child_df.at[idx, first_col])
+      later_ts = _to_timestamp(child_df.at[idx, later_col])
+      if pd.isna(first_ts) or pd.isna(later_ts):
+        continue
+      gap = (later_ts - first_ts).days
+      if 0 <= gap < min_interval_days:
+        interval_mask.at[idx] = True
+        if len(report["issues"]["dose_interval_under_28_days"]) < max_details:
+          report["issues"]["dose_interval_under_28_days"].append(
+            {
+              "row": int(idx) + 2,
+              "children_code": str(child_df.at[idx, code_col]) if code_col else None,
+              "issue": issue,
+              "first_dose_date": first_ts.strftime("%Y-%m-%d"),
+              "later_dose_date": later_ts.strftime("%Y-%m-%d"),
+              "days_between": int(gap),
+            }
+          )
+  error_mask = error_mask | interval_mask
+
   # 4b) Primary dose not received but later dose received.
   missing_primary_mask = pd.Series(False, index=child_df.index)
   dependency_checks = [
@@ -406,6 +442,7 @@ def run_child_verification(child_df: pd.DataFrame) -> tuple[pd.Series, dict, pd.
     "dob_later_than_fsd_rows": int(dob_fsd_mask.sum()),
     "dob_later_than_dose_rows": int(dob_dose_mask.sum()),
     "later_dose_earlier_date_rows": int(sequence_mask.sum()),
+    "dose_interval_under_28_days_rows": int(interval_mask.sum()),
     "later_dose_without_primary_rows": int(missing_primary_mask.sum()),
     "child_rows_with_any_error": int(error_mask.sum()),
   }
@@ -968,6 +1005,19 @@ with pd.ExcelWriter(DST, engine="openpyxl") as writer:
 
   for row_idx in df.index[child_error_mask]:
       child_ws.cell(row=int(row_idx) + 2, column=cc_col_idx).fill = red_fill
+
+  # Highlight the later dose date cell in orange when the gap from the previous dose is < 28 days.
+  orange_fill = PatternFill(fill_type="solid", fgColor="FFC000")
+  for first_col, later_col in [("Pe1D", "Pe2D"), ("Pe2D", "Pe3D"), ("OP1D", "OP2D"),
+                               ("OP2D", "OP3D"), ("MM1D", "MM2D")]:
+      if first_col not in df.columns or later_col not in df.columns:
+          continue
+      later_idx = df.columns.get_loc(later_col) + 1
+      for row_idx in df.index:
+          f_ts = _to_timestamp(df.at[row_idx, first_col])
+          l_ts = _to_timestamp(df.at[row_idx, later_col])
+          if pd.notna(f_ts) and pd.notna(l_ts) and 0 <= (l_ts - f_ts).days < 28:
+              child_ws.cell(row=int(row_idx) + 2, column=later_idx).fill = orange_fill
 
   # Highlight duplicate pw_code/PW_code values in yellow on the Td sheet.
   if td_code_col is not None:
