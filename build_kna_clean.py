@@ -393,6 +393,7 @@ def run_child_verification(child_df: pd.DataFrame) -> tuple[pd.Series, dict, pd.
       gap = (later_ts - first_ts).days
       if 0 <= gap < min_interval_days:
         interval_mask.at[idx] = True
+        issue_labels[idx].append(issue)
         if len(report["issues"]["dose_interval_under_28_days"]) < max_details:
           report["issues"]["dose_interval_under_28_days"].append(
             {
